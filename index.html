@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="WorldPointer">
+  <meta name="theme-color" content="#000000">
+  <title>WorldPointer</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    html, body {
+      width: 100%; height: 100%;
+      background: #000;
+      overflow: hidden;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    #canvas {
+      display: block;
+      width: 100%; height: 100%;
+      cursor: none;
+      touch-action: none;
+    }
+
+    /* 設定ボタン — スポット非表示中のみ表示 */
+    #settings-btn {
+      position: fixed;
+      top: max(20px, env(safe-area-inset-top, 20px));
+      right: max(20px, env(safe-area-inset-right, 20px));
+      width: 48px; height: 48px;
+      background: rgba(255,255,255,0.12);
+      border: 1.5px solid rgba(255,255,255,0.22);
+      border-radius: 50%;
+      color: rgba(255,255,255,0.65);
+      font-size: 22px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.5s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    #settings-btn.visible { opacity: 1; pointer-events: auto; }
+    #settings-btn:active { background: rgba(255,255,255,0.25); }
+
+    /* 設定パネル */
+    #settings-panel {
+      position: fixed;
+      inset: 0 0 0 auto;
+      width: min(320px, 100vw);
+      background: rgba(12, 12, 12, 0.96);
+      -webkit-backdrop-filter: blur(20px);
+      backdrop-filter: blur(20px);
+      border-left: 1px solid rgba(255,255,255,0.08);
+      padding: 68px 28px max(32px, env(safe-area-inset-bottom, 32px));
+      overflow-y: auto;
+      z-index: 20;
+      transform: translateX(100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      font-family: -apple-system, 'Helvetica Neue', sans-serif;
+      color: #fff;
+    }
+    #settings-panel.open { transform: translateX(0); }
+
+    .panel-title {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 28px;
+      color: rgba(255,255,255,0.9);
+    }
+
+    .setting-group { margin-bottom: 26px; }
+
+    .setting-label {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      font-size: 11px;
+      font-weight: 600;
+      color: rgba(255,255,255,0.4);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-bottom: 10px;
+    }
+    .setting-label span {
+      font-size: 13px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.75);
+      text-transform: none;
+      letter-spacing: 0;
+    }
+
+    /* 形状選択 */
+    .shape-btns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .shape-btn {
+      padding: 12px 8px 10px;
+      background: rgba(255,255,255,0.07);
+      border: 1.5px solid rgba(255,255,255,0.12);
+      border-radius: 12px;
+      color: rgba(255,255,255,0.45);
+      font-size: 12px;
+      font-family: inherit;
+      cursor: pointer;
+      text-align: center;
+      line-height: 1.4;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
+    }
+    .shape-btn.active {
+      background: rgba(255,255,255,0.16);
+      border-color: rgba(255,255,255,0.55);
+      color: #fff;
+    }
+    .shape-icon { font-size: 22px; display: block; margin-bottom: 5px; }
+
+    /* スライダー */
+    input[type=range] {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.18);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.5);
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: #fff;
+      cursor: pointer;
+      border: none;
+      box-shadow: 0 1px 6px rgba(0,0,0,0.5);
+    }
+
+    /* 色選択 */
+    .color-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .color-swatch {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      cursor: pointer;
+      border: 2.5px solid transparent;
+      transition: border-color 0.15s, transform 0.15s;
+      flex-shrink: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .color-swatch.active { border-color: #fff; transform: scale(1.2); }
+
+    .color-custom-wrap {
+      width: 34px; height: 34px;
+      border-radius: 50%;
+      overflow: hidden;
+      position: relative;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .color-custom-bg {
+      width: 100%; height: 100%;
+      background: conic-gradient(#f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px;
+      pointer-events: none;
+    }
+    .color-custom-wrap input[type=color] {
+      position: absolute;
+      inset: 0;
+      width: 100%; height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .setting-hint {
+      font-size: 11px;
+      color: rgba(255,255,255,0.22);
+      margin-top: 7px;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<button id="settings-btn" aria-label="設定を開く">⚙</button>
+
+<div id="settings-panel" role="dialog" aria-modal="true" aria-label="設定">
+  <div class="panel-title">設定</div>
+
+  <div class="setting-group">
+    <div class="setting-label">形状</div>
+    <div class="shape-btns">
+      <button class="shape-btn active" data-shape="circle">
+        <span class="shape-icon">●</span>スポット
+      </button>
+      <button class="shape-btn" data-shape="arrow">
+        <span class="shape-icon">↖</span>矢印
+      </button>
+    </div>
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-label">色</div>
+    <div class="color-row" id="color-row">
+      <div class="color-swatch active" data-color="#ffffff" style="background:#fff" title="白"></div>
+      <div class="color-swatch" data-color="#ffff66" style="background:#ffff66" title="黄"></div>
+      <div class="color-swatch" data-color="#66ccff" style="background:#66ccff" title="水色"></div>
+      <div class="color-swatch" data-color="#ff8833" style="background:#ff8833" title="橙"></div>
+      <div class="color-swatch" data-color="#88ff88" style="background:#88ff88" title="緑"></div>
+      <div class="color-custom-wrap" title="カスタムカラー">
+        <div class="color-custom-bg">＋</div>
+        <input type="color" id="color-custom" value="#ffffff">
+      </div>
+    </div>
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-label">サイズ <span id="size-val">80</span></div>
+    <input type="range" id="size-slider" min="20" max="250" value="80" step="5">
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-label">不透明度 <span id="opacity-val">100%</span></div>
+    <input type="range" id="opacity-slider" min="20" max="100" value="100" step="5">
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-label">フェードアウト <span id="fade-val">2.0 秒</span></div>
+    <input type="range" id="fade-slider" min="5" max="100" value="20" step="5">
+    <div class="setting-hint">操作停止後，スポットが消えるまでの時間</div>
+  </div>
+
+  <div class="setting-group">
+    <div class="setting-label">スムージング <span id="smooth-val">弱め</span></div>
+    <input type="range" id="smooth-slider" min="1" max="9" value="3" step="1">
+    <div class="setting-hint">← 速い応答　　　スムーズ →</div>
+  </div>
+</div>
+
+<script>
+// ── Canvas ─────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// ── Settings state ─────────────────────────────────────────────────────────
+const S = {
+  shape:       'circle',
+  color:       '#ffffff',
+  size:        80,
+  opacity:     1.0,
+  fadeOutDelay: 2000,  // ms
+  smoothAlpha: 0.22,   // EMA alpha: low = smoother, high = more responsive
+};
+
+// ── Pointer state ──────────────────────────────────────────────────────────
+let rawX = 0, rawY = 0;
+let smoothX = 0, smoothY = 0;
+let hasPointer = false;
+let settingsOpen = false;
+
+// ── Fade state machine ─────────────────────────────────────────────────────
+//   hidden → fadein → visible → fadeout → hidden
+const FADE_IN_MS  = 200;
+const FADE_OUT_MS = 600;
+
+let phase        = 'hidden';
+let phaseStart   = 0;
+let phaseAlpha0  = 0;   // displayAlpha when phase transition began
+let displayAlpha = 0;
+let lastMoveTime = 0;
+
+function triggerFadeIn(now) {
+  if (phase === 'fadein' || phase === 'visible') return;
+  phase       = 'fadein';
+  phaseStart  = now;
+  phaseAlpha0 = displayAlpha;
+}
+
+function triggerFadeOut(now) {
+  if (phase === 'fadeout' || phase === 'hidden') return;
+  phase       = 'fadeout';
+  phaseStart  = now;
+  phaseAlpha0 = displayAlpha;
+}
+
+function easeOutQuad(t) { return 1 - (1 - t) * (1 - t); }
+
+function updateFade(now) {
+  switch (phase) {
+    case 'fadein': {
+      const t = Math.min((now - phaseStart) / FADE_IN_MS, 1);
+      displayAlpha = phaseAlpha0 + (1 - phaseAlpha0) * easeOutQuad(t);
+      if (t >= 1) { displayAlpha = 1; phase = 'visible'; }
+      break;
+    }
+    case 'visible': {
+      displayAlpha = 1;
+      if (now - lastMoveTime > S.fadeOutDelay) triggerFadeOut(now);
+      break;
+    }
+    case 'fadeout': {
+      const t = Math.min((now - phaseStart) / FADE_OUT_MS, 1);
+      displayAlpha = phaseAlpha0 * (1 - easeOutQuad(t));
+      if (t >= 1) { displayAlpha = 0; phase = 'hidden'; }
+      break;
+    }
+  }
+}
+
+// ── Pointer events ─────────────────────────────────────────────────────────
+function onPointer(e) {
+  if (settingsOpen) return;
+  const now = performance.now();
+  rawX = e.clientX;
+  rawY = e.clientY;
+  if (!hasPointer) {
+    // 初回: スムージング遅延なし
+    smoothX = rawX;
+    smoothY = rawY;
+    hasPointer = true;
+  }
+  lastMoveTime = now;
+  triggerFadeIn(now);
+}
+
+// ── 右上コーナー トリプルタップ検出 ──────────────────────────────────────
+const CORNER_SIZE   = 100;  // px（右上の検出エリア）
+const TRIPLE_TAP_MS = 800;  // ms（この時間内に3回タップで発動）
+const cornerTimes   = [];
+
+function checkCornerTripleTap(x, y, now) {
+  const inCorner = x >= canvas.width - CORNER_SIZE && y <= CORNER_SIZE;
+  if (!inCorner) { cornerTimes.length = 0; return false; }
+  cornerTimes.push(now);
+  while (cornerTimes.length > 0 && now - cornerTimes[0] > TRIPLE_TAP_MS) cornerTimes.shift();
+  if (cornerTimes.length >= 3) { cornerTimes.length = 0; return true; }
+  return false;
+}
+
+canvas.addEventListener('pointermove', e => { e.preventDefault(); onPointer(e); });
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (checkCornerTripleTap(e.clientX, e.clientY, performance.now())) {
+    toggleSettings();
+    return;
+  }
+  onPointer(e);
+});
+
+// ── Color utilities ────────────────────────────────────────────────────────
+function hexToRgb(hex) {
+  if (hex.length === 4) {
+    hex = '#' + hex[1]+hex[1] + hex[2]+hex[2] + hex[3]+hex[3];
+  }
+  return [
+    parseInt(hex.slice(1,3), 16),
+    parseInt(hex.slice(3,5), 16),
+    parseInt(hex.slice(5,7), 16),
+  ];
+}
+function rgba(hex, a) {
+  const [r,g,b] = hexToRgb(hex);
+  return `rgba(${r},${g},${b},${a.toFixed(3)})`;
+}
+
+// ── Draw: circle spotlight ─────────────────────────────────────────────────
+function drawCircle(x, y, a) {
+  const sz  = S.size;
+  const ga  = a * S.opacity;
+
+  // ハロー（外側の柔らかいグロー）
+  const halo = ctx.createRadialGradient(x, y, sz * 0.35, x, y, sz * 2.5);
+  halo.addColorStop(0,   rgba(S.color, ga * 0.30));
+  halo.addColorStop(0.5, rgba(S.color, ga * 0.10));
+  halo.addColorStop(1,   rgba(S.color, 0));
+  ctx.fillStyle = halo;
+  ctx.fillRect(x - sz*2.5, y - sz*2.5, sz*5, sz*5);
+
+  // コアスポット
+  const core = ctx.createRadialGradient(x, y, 0, x, y, sz);
+  core.addColorStop(0,   rgba(S.color, ga));
+  core.addColorStop(0.55,rgba(S.color, ga * 0.88));
+  core.addColorStop(1,   rgba(S.color, 0));
+  ctx.fillStyle = core;
+  ctx.fillRect(x - sz, y - sz, sz*2, sz*2);
+}
+
+// ── Draw: arrow cursor ─────────────────────────────────────────────────────
+function drawArrow(x, y, a) {
+  const s  = S.size / 16;  // スケールファクター（size=80 → s=5）
+  const ga = a * S.opacity;
+  const [r,g,b] = hexToRgb(S.color);
+
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.globalAlpha = ga;
+
+  // PC マウスカーソル形状（先端が原点）
+  ctx.beginPath();
+  ctx.moveTo(0,        0        );
+  ctx.lineTo(0,        14 * s   );
+  ctx.lineTo(3.8 * s,  10.8 * s );
+  ctx.lineTo(6.5 * s,  17.2 * s );
+  ctx.lineTo(8.8 * s,  16.2 * s );
+  ctx.lineTo(6.1 * s,  9.5 * s  );
+  ctx.lineTo(10.5 * s, 9.5 * s  );
+  ctx.closePath();
+
+  // グロー
+  ctx.shadowColor = `rgb(${r},${g},${b})`;
+  ctx.shadowBlur  = 20 * s;
+  ctx.fillStyle   = `rgb(${r},${g},${b})`;
+  ctx.fill();
+
+  // 輪郭（コントラスト）
+  ctx.shadowBlur    = 0;
+  ctx.globalAlpha   = ga * 0.55;
+  ctx.strokeStyle   = 'rgba(0,0,0,0.8)';
+  ctx.lineWidth     = 1.5;
+  ctx.lineJoin      = 'round';
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ── Main animation loop ────────────────────────────────────────────────────
+const settingsBtn   = document.getElementById('settings-btn');
+const settingsPanel = document.getElementById('settings-panel');
+
+function loop(now) {
+  // EMA スムージング
+  if (hasPointer) {
+    const α = S.smoothAlpha;
+    smoothX += (rawX - smoothX) * α;
+    smoothY += (rawY - smoothY) * α;
+  }
+
+  updateFade(now);
+
+  // 黒背景クリア
+  ctx.globalAlpha = 1;
+  ctx.fillStyle   = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // スポット描画
+  if (displayAlpha > 0.004) {
+    if (S.shape === 'circle') {
+      drawCircle(smoothX, smoothY, displayAlpha);
+    } else {
+      drawArrow(smoothX, smoothY, displayAlpha);
+    }
+  }
+
+  // プレビュー（設定パネル表示中：パネル左側エリアの中央に脈動表示）
+  if (settingsOpen) {
+    const panelW = Math.min(320, canvas.width);
+    const px     = (canvas.width - panelW) / 2;
+    const py     = canvas.height / 2;
+    const pulse  = 0.7 + 0.3 * Math.sin(now / 600);
+    if (S.shape === 'circle') {
+      drawCircle(px, py, pulse);
+    } else {
+      drawArrow(px, py, pulse);
+    }
+  }
+
+  // 設定ボタンの表示制御（スポット非表示中のみ表示）
+  const btnVisible = phase === 'hidden' || settingsOpen;
+  settingsBtn.classList.toggle('visible', btnVisible);
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+
+// ── Settings panel ─────────────────────────────────────────────────────────
+function toggleSettings() {
+  settingsOpen = !settingsOpen;
+  settingsPanel.classList.toggle('open', settingsOpen);
+}
+
+settingsBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  toggleSettings();
+});
+
+// キーボード: Escape キーで設定を開閉
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') toggleSettings();
+});
+
+// パネル外タップで閉じる
+document.addEventListener('pointerdown', e => {
+  if (!settingsOpen) return;
+  if (!settingsPanel.contains(e.target) && e.target !== settingsBtn) {
+    settingsOpen = false;
+    settingsPanel.classList.remove('open');
+  }
+}, { capture: true });
+
+// 形状
+document.querySelectorAll('.shape-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    S.shape = btn.dataset.shape;
+  });
+});
+
+// 色（プリセットスウォッチ）
+document.querySelectorAll('.color-swatch').forEach(sw => {
+  sw.addEventListener('click', () => {
+    document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+    sw.classList.add('active');
+    S.color = sw.dataset.color;
+  });
+});
+
+// 色（カスタム）
+document.getElementById('color-custom').addEventListener('input', e => {
+  document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+  S.color = e.target.value;
+});
+
+// サイズ
+const sizeSlider = document.getElementById('size-slider');
+const sizeVal    = document.getElementById('size-val');
+sizeSlider.addEventListener('input', () => {
+  S.size = +sizeSlider.value;
+  sizeVal.textContent = S.size;
+});
+
+// 不透明度
+const opacitySlider = document.getElementById('opacity-slider');
+const opacityVal    = document.getElementById('opacity-val');
+opacitySlider.addEventListener('input', () => {
+  S.opacity = +opacitySlider.value / 100;
+  opacityVal.textContent = +opacitySlider.value + '%';
+});
+
+// フェードアウト時間
+const fadeSlider = document.getElementById('fade-slider');
+const fadeVal    = document.getElementById('fade-val');
+fadeSlider.addEventListener('input', () => {
+  S.fadeOutDelay = +fadeSlider.value * 100;
+  fadeVal.textContent = (+fadeSlider.value / 10).toFixed(1) + ' 秒';
+});
+
+// スムージング（対数スケール: v=1が最速応答、v=9が最スムーズ）
+const smoothSlider  = document.getElementById('smooth-slider');
+const smoothVal     = document.getElementById('smooth-val');
+const SMOOTH_LABELS = ['なし','ごく弱','弱','弱め','中','中強','強','強め','最強'];
+smoothSlider.addEventListener('input', () => {
+  const v = +smoothSlider.value;
+  // v=1 → alpha=0.95（ほぼ補正なし）, v=9 → alpha=0.05（重いスムージング）
+  S.smoothAlpha    = 0.95 * Math.pow(0.05 / 0.95, (v - 1) / 8);
+  smoothVal.textContent = SMOOTH_LABELS[v - 1];
+});
+
+// ── Service Worker 登録 ────────────────────────────────────────────────────
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
