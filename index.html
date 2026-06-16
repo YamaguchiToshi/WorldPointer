@@ -247,8 +247,8 @@
   </div>
 
   <div class="setting-group">
-    <div class="setting-label">フェードアウト <span id="fade-val">2.0 秒</span></div>
-    <input type="range" id="fade-slider" min="5" max="100" value="20" step="5">
+    <div class="setting-label">フェードアウト <span id="fade-val">7.0 秒</span></div>
+    <input type="range" id="fade-slider" min="5" max="105" value="70" step="5">
     <div class="setting-hint">操作停止後，スポットが消えるまでの時間</div>
   </div>
 
@@ -277,9 +277,31 @@ const S = {
   color:       '#ffffff',
   size:        80,
   opacity:     1.0,
-  fadeOutDelay: 2000,  // ms
+  fadeOutDelay: 7000,  // ms（Infinity = フェードアウトしない）
   smoothAlpha: 0.22,   // EMA alpha: low = smoother, high = more responsive
 };
+
+// ── 設定の保存・復元（localStorage） ──────────────────────────────────────
+const STORAGE_KEY = 'worldpointer-settings';
+
+function saveSettings() {
+  try {
+    const toSave = { ...S, fadeOutDelay: S.fadeOutDelay === Infinity ? 'infinity' : S.fadeOutDelay };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  } catch (e) {}
+}
+
+function loadSettings() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const saved = JSON.parse(raw);
+    if (saved.fadeOutDelay === 'infinity') saved.fadeOutDelay = Infinity;
+    Object.assign(S, saved);
+  } catch (e) {}
+}
+
+loadSettings();
 
 // ── Pointer state ──────────────────────────────────────────────────────────
 let rawX = 0, rawY = 0;
@@ -324,7 +346,7 @@ function updateFade(now) {
     }
     case 'visible': {
       displayAlpha = 1;
-      if (now - lastMoveTime > S.fadeOutDelay) triggerFadeOut(now);
+      if (S.fadeOutDelay !== Infinity && now - lastMoveTime > S.fadeOutDelay) triggerFadeOut(now);
       break;
     }
     case 'fadeout': {
@@ -533,6 +555,7 @@ document.querySelectorAll('.shape-btn').forEach(btn => {
     document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     S.shape = btn.dataset.shape;
+    saveSettings();
   });
 });
 
@@ -542,13 +565,16 @@ document.querySelectorAll('.color-swatch').forEach(sw => {
     document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
     sw.classList.add('active');
     S.color = sw.dataset.color;
+    saveSettings();
   });
 });
 
 // 色（カスタム）
-document.getElementById('color-custom').addEventListener('input', e => {
+const colorCustomInput = document.getElementById('color-custom');
+colorCustomInput.addEventListener('input', e => {
   document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
   S.color = e.target.value;
+  saveSettings();
 });
 
 // サイズ
@@ -557,6 +583,7 @@ const sizeVal    = document.getElementById('size-val');
 sizeSlider.addEventListener('input', () => {
   S.size = +sizeSlider.value;
   sizeVal.textContent = S.size;
+  saveSettings();
 });
 
 // 不透明度
@@ -565,26 +592,68 @@ const opacityVal    = document.getElementById('opacity-val');
 opacitySlider.addEventListener('input', () => {
   S.opacity = +opacitySlider.value / 100;
   opacityVal.textContent = +opacitySlider.value + '%';
+  saveSettings();
 });
 
-// フェードアウト時間
+// フェードアウト時間（スライダー最大値 = フェードアウトしない）
 const fadeSlider = document.getElementById('fade-slider');
 const fadeVal    = document.getElementById('fade-val');
+function applyFadeSlider(v) {
+  if (v > 100) {
+    S.fadeOutDelay = Infinity;
+    fadeVal.textContent = 'フェードアウトしない';
+  } else {
+    S.fadeOutDelay = v * 100;
+    fadeVal.textContent = (v / 10).toFixed(1) + ' 秒';
+  }
+}
 fadeSlider.addEventListener('input', () => {
-  S.fadeOutDelay = +fadeSlider.value * 100;
-  fadeVal.textContent = (+fadeSlider.value / 10).toFixed(1) + ' 秒';
+  applyFadeSlider(+fadeSlider.value);
+  saveSettings();
 });
 
 // スムージング（対数スケール: v=1が最速応答、v=9が最スムーズ）
 const smoothSlider  = document.getElementById('smooth-slider');
 const smoothVal     = document.getElementById('smooth-val');
 const SMOOTH_LABELS = ['なし','ごく弱','弱','弱め','中','中強','強','強め','最強'];
-smoothSlider.addEventListener('input', () => {
-  const v = +smoothSlider.value;
+function applySmoothSlider(v) {
   // v=1 → alpha=0.95（ほぼ補正なし）, v=9 → alpha=0.05（重いスムージング）
-  S.smoothAlpha    = 0.95 * Math.pow(0.05 / 0.95, (v - 1) / 8);
+  S.smoothAlpha = 0.95 * Math.pow(0.05 / 0.95, (v - 1) / 8);
   smoothVal.textContent = SMOOTH_LABELS[v - 1];
+}
+smoothSlider.addEventListener('input', () => {
+  applySmoothSlider(+smoothSlider.value);
+  saveSettings();
 });
+
+// ── 読み込んだ設定をUIへ反映 ───────────────────────────────────────────────
+(function syncUIFromSettings() {
+  document.querySelectorAll('.shape-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.shape === S.shape));
+
+  let matchedPreset = false;
+  document.querySelectorAll('.color-swatch').forEach(sw => {
+    const isMatch = sw.dataset.color.toLowerCase() === S.color.toLowerCase();
+    sw.classList.toggle('active', isMatch);
+    if (isMatch) matchedPreset = true;
+  });
+  colorCustomInput.value = S.color;
+
+  sizeSlider.value = S.size;
+  sizeVal.textContent = S.size;
+
+  const opacityPct = Math.round(S.opacity * 100);
+  opacitySlider.value = opacityPct;
+  opacityVal.textContent = opacityPct + '%';
+
+  const fadeV = S.fadeOutDelay === Infinity ? 105 : Math.round(S.fadeOutDelay / 100);
+  fadeSlider.value = fadeV;
+  applyFadeSlider(fadeV);
+
+  const smoothV = Math.round(1 + 8 * Math.log(S.smoothAlpha / 0.95) / Math.log(0.05 / 0.95));
+  smoothSlider.value = smoothV;
+  applySmoothSlider(smoothV);
+})();
 
 // ── Service Worker 登録 ────────────────────────────────────────────────────
 if ('serviceWorker' in navigator) {
