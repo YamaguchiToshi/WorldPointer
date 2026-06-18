@@ -511,10 +511,13 @@ function triggerClickEffect(x, y, now) {
 function drawRipples(now) {
   if (!ripples.length) return;
   const [r, g, b] = hexToRgb(S.color);
-  const DURATION  = 2000;
+  const DURATION   = 2200;
   const RING_COUNT = 3;
-  const RING_GAP   = 380;   // ms（リング間隔）
+  const RING_GAP   = 380;
   const maxR = Math.min(canvas.width, canvas.height) * 0.44;
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';  // 光を加算合成
 
   for (let i = ripples.length - 1; i >= 0; i--) {
     const { x, y, startTime } = ripples[i];
@@ -525,23 +528,30 @@ function drawRipples(now) {
     for (let k = 0; k < RING_COUNT; k++) {
       const ringElapsed = elapsed - k * RING_GAP;
       if (ringElapsed <= 0) continue;
-      const t    = Math.min(ringElapsed / DURATION, 1);
-      const ease = 1 - (1 - t) * (1 - t);        // ease-out quad
+      const t      = Math.min(ringElapsed / DURATION, 1);
+      const ease   = 1 - (1 - t) * (1 - t);   // ease-out quad
       const radius = ease * maxR;
-      const alpha  = (1 - t) * 0.85 * S.opacity;
-      const lw     = (1 - t) * 3 + 0.5;
+      const alpha  = (1 - t) * 0.65 * S.opacity;
 
-      ctx.save();
-      ctx.shadowColor = `rgba(${r},${g},${b},${alpha * 0.6})`;
-      ctx.shadowBlur  = 8;
-      ctx.beginPath();
-      ctx.arc(x, y, Math.max(radius, 1), 0, Math.PI * 2);
-      ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
-      ctx.lineWidth   = lw;
-      ctx.stroke();
-      ctx.restore();
+      // 拡大に伴ってリング幅も少し広がる（水面の波紋らしさ）
+      const ringW  = (0.04 + 0.04 * ease) * maxR;
+      const innerR = Math.max(0.01, radius - ringW * 0.5);
+      const outerR = radius + ringW * 0.5;
+
+      // ベルカーブ型グラデーション：内→明→暗 で光の帯を作る
+      const grad = ctx.createRadialGradient(x, y, innerR, x, y, outerR);
+      grad.addColorStop(0,    `rgba(${r},${g},${b},0)`);
+      grad.addColorStop(0.35, `rgba(${r},${g},${b},${alpha * 0.5})`);
+      grad.addColorStop(0.5,  `rgba(${r},${g},${b},${alpha})`);
+      grad.addColorStop(0.65, `rgba(${r},${g},${b},${alpha * 0.5})`);
+      grad.addColorStop(1,    `rgba(${r},${g},${b},0)`);
+
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - outerR, y - outerR, outerR * 2, outerR * 2);
     }
   }
+
+  ctx.restore();
 }
 
 function drawFlashes(now) {
