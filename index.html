@@ -257,6 +257,24 @@
     <input type="range" id="smooth-slider" min="1" max="9" value="3" step="1">
     <div class="setting-hint">← 速い応答　　　スムーズ →</div>
   </div>
+
+  <div class="setting-group">
+    <div class="setting-label">クリックエフェクト</div>
+    <div class="shape-btns">
+      <button class="shape-btn active" data-effect="none">
+        <span class="shape-icon">—</span>なし
+      </button>
+      <button class="shape-btn" data-effect="ripple">
+        <span class="shape-icon">〰</span>波紋
+      </button>
+      <button class="shape-btn" data-effect="flash">
+        <span class="shape-icon">✦</span>フラッシュ
+      </button>
+      <button class="shape-btn" data-effect="pulse">
+        <span class="shape-icon">◎</span>パルス
+      </button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -273,12 +291,13 @@ window.addEventListener('resize', resize);
 
 // ── Settings state ─────────────────────────────────────────────────────────
 const S = {
-  shape:       'circle',
-  color:       '#ffffff',
-  size:        80,
-  opacity:     1.0,
+  shape:        'circle',
+  color:        '#ffffff',
+  size:         80,
+  opacity:      1.0,
   fadeOutDelay: 7000,  // ms（Infinity = フェードアウトしない）
-  smoothAlpha: 0.22,   // EMA alpha: low = smoother, high = more responsive
+  smoothAlpha:  0.22,  // EMA alpha: low = smoother, high = more responsive
+  clickEffect:  'none',
 };
 
 // ── 設定の保存・復元（localStorage） ──────────────────────────────────────
@@ -391,11 +410,13 @@ function checkCornerTripleTap(x, y, now) {
 canvas.addEventListener('pointermove', e => { e.preventDefault(); onPointer(e); });
 canvas.addEventListener('pointerdown', e => {
   e.preventDefault();
-  if (checkCornerTripleTap(e.clientX, e.clientY, performance.now())) {
+  const now = performance.now();
+  if (checkCornerTripleTap(e.clientX, e.clientY, now)) {
     toggleSettings();
     return;
   }
   onPointer(e);
+  triggerClickEffect(e.clientX, e.clientY, now);
 });
 
 // ── Color utilities ────────────────────────────────────────────────────────
@@ -474,6 +495,101 @@ function drawArrow(x, y, a) {
   ctx.restore();
 }
 
+// ── Click effects ─────────────────────────────────────────────────────────
+const ripples = [];
+const flashes = [];
+const pulses  = [];
+
+function triggerClickEffect(x, y, now) {
+  if (S.clickEffect === 'none') return;
+  const entry = { x, y, startTime: now };
+  if (S.clickEffect === 'ripple') ripples.push(entry);
+  else if (S.clickEffect === 'flash') flashes.push(entry);
+  else if (S.clickEffect === 'pulse') pulses.push(entry);
+}
+
+function drawRipples(now) {
+  if (!ripples.length) return;
+  const [r, g, b] = hexToRgb(S.color);
+  const DURATION  = 2000;
+  const RING_COUNT = 3;
+  const RING_GAP   = 380;   // ms（リング間隔）
+  const maxR = Math.min(canvas.width, canvas.height) * 0.44;
+
+  for (let i = ripples.length - 1; i >= 0; i--) {
+    const { x, y, startTime } = ripples[i];
+    const elapsed = now - startTime;
+    if (elapsed > DURATION + (RING_COUNT - 1) * RING_GAP) {
+      ripples.splice(i, 1); continue;
+    }
+    for (let k = 0; k < RING_COUNT; k++) {
+      const ringElapsed = elapsed - k * RING_GAP;
+      if (ringElapsed <= 0) continue;
+      const t    = Math.min(ringElapsed / DURATION, 1);
+      const ease = 1 - (1 - t) * (1 - t);        // ease-out quad
+      const radius = ease * maxR;
+      const alpha  = (1 - t) * 0.85 * S.opacity;
+      const lw     = (1 - t) * 3 + 0.5;
+
+      ctx.save();
+      ctx.shadowColor = `rgba(${r},${g},${b},${alpha * 0.6})`;
+      ctx.shadowBlur  = 8;
+      ctx.beginPath();
+      ctx.arc(x, y, Math.max(radius, 1), 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+      ctx.lineWidth   = lw;
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}
+
+function drawFlashes(now) {
+  if (!flashes.length) return;
+  const [r, g, b] = hexToRgb(S.color);
+  const DURATION = 500;
+
+  for (let i = flashes.length - 1; i >= 0; i--) {
+    const { x, y, startTime } = flashes[i];
+    const t = (now - startTime) / DURATION;
+    if (t >= 1) { flashes.splice(i, 1); continue; }
+    const alpha  = (1 - t) * (1 - t) * S.opacity;  // 急速に減衰
+    const radius = S.size * (1 + t * 4);
+    const grad   = ctx.createRadialGradient(x, y, 0, x, y, radius);
+    grad.addColorStop(0,   `rgba(${r},${g},${b},${alpha})`);
+    grad.addColorStop(0.35,`rgba(${r},${g},${b},${alpha * 0.45})`);
+    grad.addColorStop(1,   `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
+  }
+}
+
+function drawPulses(now) {
+  if (!pulses.length) return;
+  const [r, g, b] = hexToRgb(S.color);
+  const DURATION = 650;
+
+  for (let i = pulses.length - 1; i >= 0; i--) {
+    const { x, y, startTime } = pulses[i];
+    const t = (now - startTime) / DURATION;
+    if (t >= 1) { pulses.splice(i, 1); continue; }
+    const ease   = 1 - (1 - t) * (1 - t);
+    const radius = S.size * (0.4 + ease * 3.2);
+    const alpha  = (1 - t) * 0.9 * S.opacity;
+    const lw     = (1 - t) * 5 + 0.5;
+
+    ctx.save();
+    ctx.shadowColor = `rgba(${r},${g},${b},${alpha * 0.5})`;
+    ctx.shadowBlur  = 12;
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(radius, 1), 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(${r},${g},${b},${alpha})`;
+    ctx.lineWidth   = lw;
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
 // ── Main animation loop ────────────────────────────────────────────────────
 const settingsBtn   = document.getElementById('settings-btn');
 const settingsPanel = document.getElementById('settings-panel');
@@ -501,6 +617,11 @@ function loop(now) {
       drawArrow(smoothX, smoothY, displayAlpha);
     }
   }
+
+  // クリックエフェクト
+  drawRipples(now);
+  drawFlashes(now);
+  drawPulses(now);
 
   // プレビュー（設定パネル表示中：パネル左側エリアの中央に脈動表示）
   if (settingsOpen) {
@@ -550,11 +671,21 @@ document.addEventListener('pointerdown', e => {
 }, { capture: true });
 
 // 形状
-document.querySelectorAll('.shape-btn').forEach(btn => {
+document.querySelectorAll('.shape-btn[data-shape]').forEach(btn => {
   btn.addEventListener('click', () => {
-    document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.shape-btn[data-shape]').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     S.shape = btn.dataset.shape;
+    saveSettings();
+  });
+});
+
+// クリックエフェクト
+document.querySelectorAll('.shape-btn[data-effect]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.shape-btn[data-effect]').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    S.clickEffect = btn.dataset.effect;
     saveSettings();
   });
 });
@@ -628,8 +759,11 @@ smoothSlider.addEventListener('input', () => {
 
 // ── 読み込んだ設定をUIへ反映 ───────────────────────────────────────────────
 (function syncUIFromSettings() {
-  document.querySelectorAll('.shape-btn').forEach(b =>
+  document.querySelectorAll('.shape-btn[data-shape]').forEach(b =>
     b.classList.toggle('active', b.dataset.shape === S.shape));
+
+  document.querySelectorAll('.shape-btn[data-effect]').forEach(b =>
+    b.classList.toggle('active', b.dataset.effect === S.clickEffect));
 
   let matchedPreset = false;
   document.querySelectorAll('.color-swatch').forEach(sw => {
