@@ -1,5 +1,5 @@
 const CACHE = 'worldpointer-v1';
-const ASSETS = ['.', 'index.html', 'manifest.json', 'icon.svg', 'iconDesign.png'];
+const ASSETS = ['.', 'index.html', 'manifest.json', 'icon.svg', 'iconDesign.png', 'CNAME'];
 
 self.addEventListener('install', e => {
   e.waitUntil(
