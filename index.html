@@ -289,14 +289,6 @@
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 
-function resize() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-  updateZone();
-}
-resize();
-window.addEventListener('resize', resize);
-
 // ── Active zone（システム領域を除いたポインタ可動域） ────────────────────
 const ZONE_EXTRA_TOP    = 10;  // safe-area-inset-top の上乗せ（ステータスバー余白）
 const ZONE_EXTRA_BOTTOM = 50;  // safe-area-inset-bottom の上乗せ（ドック回避）
@@ -311,6 +303,14 @@ function updateZone() {
   zoneTop    = readPx('--safe-top')    + ZONE_EXTRA_TOP;
   zoneBottom = canvas.height - readPx('--safe-bottom') - ZONE_EXTRA_BOTTOM;
 }
+
+function resize() {
+  canvas.width  = window.innerWidth;
+  canvas.height = window.innerHeight;
+  updateZone();
+}
+resize();
+window.addEventListener('resize', resize);
 
 // ── Settings state ─────────────────────────────────────────────────────────
 const S = {
