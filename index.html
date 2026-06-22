@@ -13,13 +13,20 @@
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
+    :root {
+      --safe-top:    env(safe-area-inset-top,    0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
     html, body {
       width: 100%; height: 100%;
       background: #000;
       overflow: hidden;
+      overscroll-behavior: none;
       -webkit-user-select: none;
       user-select: none;
       -webkit-touch-callout: none;
+      touch-action: none;
     }
 
     #canvas {
@@ -285,9 +292,25 @@ const ctx = canvas.getContext('2d');
 function resize() {
   canvas.width  = window.innerWidth;
   canvas.height = window.innerHeight;
+  updateZone();
 }
 resize();
 window.addEventListener('resize', resize);
+
+// ── Active zone（システム領域を除いたポインタ可動域） ────────────────────
+const ZONE_EXTRA_TOP    = 10;  // safe-area-inset-top の上乗せ（ステータスバー余白）
+const ZONE_EXTRA_BOTTOM = 50;  // safe-area-inset-bottom の上乗せ（ドック回避）
+const ZONE_LR           = 20;  // 左右マージン（スポットが画面外に出ないため）
+
+let zoneTop = 0, zoneBottom = 0;  // canvas 座標での上下境界 (px)
+
+function updateZone() {
+  function readPx(v) {
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(v)) || 0;
+  }
+  zoneTop    = readPx('--safe-top')    + ZONE_EXTRA_TOP;
+  zoneBottom = canvas.height - readPx('--safe-bottom') - ZONE_EXTRA_BOTTOM;
+}
 
 // ── Settings state ─────────────────────────────────────────────────────────
 const S = {
@@ -381,10 +404,11 @@ function updateFade(now) {
 function onPointer(e) {
   if (settingsOpen) return;
   const now = performance.now();
-  rawX = e.clientX;
-  rawY = e.clientY;
+  // rawX/rawY をアクティブゾーンにクランプ
+  // → EMA がゾーン境界で自然に収束し、ソフトバウンダリ的な減速感が生まれる
+  rawX = Math.max(ZONE_LR, Math.min(canvas.width - ZONE_LR, e.clientX));
+  rawY = Math.max(zoneTop, Math.min(zoneBottom, e.clientY));
   if (!hasPointer) {
-    // 初回: スムージング遅延なし
     smoothX = rawX;
     smoothY = rawY;
     hasPointer = true;
@@ -610,6 +634,9 @@ function loop(now) {
     const α = S.smoothAlpha;
     smoothX += (rawX - smoothX) * α;
     smoothY += (rawY - smoothY) * α;
+    // 安全クランプ（EMA の慣性でゾーン外に出ないよう保証）
+    smoothX = Math.max(ZONE_LR, Math.min(canvas.width - ZONE_LR, smoothX));
+    smoothY = Math.max(zoneTop, Math.min(zoneBottom, smoothY));
   }
 
   updateFade(now);
